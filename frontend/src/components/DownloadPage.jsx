@@ -11,28 +11,28 @@ function DownloadPage() {
       title: 'Windows',
       description: 'Download for Windows 10/11',
       link: '#',
-      filename: 'AiChat-Browser-Setup.exe'
+      filename: 'lernova-Setup.exe'
     },
     macos: {
       icon: Monitor,
       title: 'macOS',
       description: 'Download for macOS 10.15+',
       link: '#',
-      filename: 'AiChat-Browser.dmg'
+      filename: 'lernova.dmg'
     },
     linux: {
       icon: Monitor,
       title: 'Linux',
       description: 'Download AppImage',
       link: '#',
-      filename: 'AiChat-Browser.AppImage'
+      filename: 'lernova.AppImage'
     },
     android: {
       icon: Smartphone,
       title: 'Android',
       description: 'Download APK',
-      link: '#',
-      filename: 'AiChat-Browser.apk'
+      link: 'E:\hackkarnatak\frontend\android\app\build\outputs\apk\androidTest\debug\app-debug-androidTest.apk',
+      filename: 'app-debug-androidTest.apk'
     },
     ios: {
       icon: Smartphone,

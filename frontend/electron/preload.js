@@ -13,15 +13,22 @@ contextBridge.exposeInMainWorld('electron', {
   // Add any electron-specific APIs here
   // Example: send/receive messages
   send: (channel, data) => {
-    const validChannels = ['toMain']
+    const validChannels = ['toMain', 'open-ai-chat']
     if (validChannels.includes(channel)) {
       ipcRenderer.send(channel, data)
     }
   },
   receive: (channel, func) => {
-    const validChannels = ['fromMain']
+    const validChannels = ['fromMain', 'ask-ai-with-selection', 'open-link-new-tab']
     if (validChannels.includes(channel)) {
       ipcRenderer.on(channel, (event, ...args) => func(...args))
+    }
+  },
+  // One-time listener for IPC messages
+  once: (channel, func) => {
+    const validChannels = ['ask-ai-with-selection', 'open-link-new-tab']
+    if (validChannels.includes(channel)) {
+      ipcRenderer.once(channel, (event, ...args) => func(...args))
     }
   }
 })

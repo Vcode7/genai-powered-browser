@@ -1,7 +1,9 @@
-import { useEffect, useRef } from 'react';
-import { remote } from 'electron';
+import { useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
+import axios from 'axios';
 
-function ElectronWebView({
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
+const ElectronWebView = forwardRef(({
   url,
   tabId,
   onNavigate,
@@ -11,27 +13,44 @@ function ElectronWebView({
   onLoadStop,
   className,
   style,
-}) {
+}, ref) => {
   const webviewRef = useRef(null);
   const lastLoadedUrl = useRef(null);
+  const isReadyRef = useRef(false);
+
+  // Expose webview element to parent
+  useImperativeHandle(ref, () => webviewRef.current);
+
+  // Load URL when webview is ready
+  const loadUrlInWebview = (webview, urlToLoad) => {
+    if (!webview || !urlToLoad) return;
+    
+    console.log('Loading URL in webview:', urlToLoad, 'for tab:', tabId);
+    lastLoadedUrl.current = urlToLoad;
+    
+    try {
+      webview.loadURL(urlToLoad);
+    } catch (error) {
+      console.error('Error loading URL:', error);
+    }
+  };
 
   useEffect(() => {
     const webview = webviewRef.current;
-    if (!webview) return;
-
-    /** 🧠 PRECONNECT: speeds up first-time loading */
-    try {
-      const { session } = remote;
-      session.defaultSession.preconnect({ url });
-    } catch (err) {
-      console.warn('Preconnect not supported:', err);
+    if (!webview) {
+      console.log('Webview ref not ready yet for tab:', tabId);
+      return;
     }
 
-    /** ✅ Only load if URL actually changes */
-    if (url && url !== lastLoadedUrl.current) {
-      lastLoadedUrl.current = url;
-      webview.loadURL(url);
-    }
+    console.log('Setting up webview event listeners for tab:', tabId);
+
+    // Wait for webview to be ready
+    const handleDomReady = () => {
+      console.log('✅ Webview DOM ready for tab:', tabId, 'URL:', url);
+      isReadyRef.current = true;
+    };
+
+    webview.addEventListener('dom-ready', handleDomReady);
 
     /** 🛠 Event handlers */
     const handleDidNavigate = (e) => {
@@ -52,8 +71,26 @@ function ElectronWebView({
       if (onLoadStop) onLoadStop();
       webview
         .executeJavaScript('document.title')
-        .then((title) => title && onTitleUpdate?.(tabId, title))
+        .then((title) => {
+          if (title && onTitleUpdate) {
+            onTitleUpdate(tabId, title);
+            // Save to history
+            saveToHistory(url, title);
+          }
+        })
         .catch(() => {});
+    };
+
+    const saveToHistory = async (url, title) => {
+      try {
+        await axios.post(`${API_URL}/api/data/history`, {
+          url: url,
+          title: title || 'Untitled',
+          favicon: null
+        });
+      } catch (error) {
+        console.error('Failed to save history:', error);
+      }
     };
 
     const handlePageTitleUpdated = (e) => {
@@ -62,7 +99,13 @@ function ElectronWebView({
 
     const handleDidFailLoad = (e) => {
       if (e.errorCode === -3) return; // Ignore ERR_ABORTED
-      console.error('WebView failed to load:', e.errorDescription || e.errorCode);
+      if (e.errorCode === -27) return; // Ignore ERR_BLOCKED_BY_CLIENT
+      console.error('WebView failed to load:', {
+        url: url,
+        errorCode: e.errorCode,
+        errorDescription: e.errorDescription,
+        validatedURL: e.validatedURL
+      });
       if (onLoadStop) onLoadStop();
     };
 
@@ -94,7 +137,9 @@ function ElectronWebView({
     webview.addEventListener('new-window', handleNewWindow);
 
     return () => {
+      console.log('Cleaning up webview listeners for tab:', tabId);
       if (progressInterval) clearInterval(progressInterval);
+      webview.removeEventListener('dom-ready', handleDomReady);
       webview.removeEventListener('did-navigate', handleDidNavigate);
       webview.removeEventListener('did-navigate-in-page', handleDidNavigateInPage);
       webview.removeEventListener('did-start-loading', handleDidStartLoading);
@@ -103,20 +148,22 @@ function ElectronWebView({
       webview.removeEventListener('page-title-updated', handlePageTitleUpdated);
       webview.removeEventListener('new-window', handleNewWindow);
     };
-  }, [url]);
+  }, [tabId, url, onNavigate, onTitleUpdate, onLoadStart, onLoadProgress, onLoadStop]);
 
   return (
     <webview
       ref={webviewRef}
+      src={url || 'about:blank'}
       className={className}
       style={style}
-      allowpopups
+      allowpopups="true"
       partition="persist:webview"
-      preload="./preload.js"
       useragent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
       webpreferences="contextIsolation=yes, nativeWindowOpen=yes, nodeIntegration=no, webSecurity=yes"
     />
   );
-}
+});
+
+ElectronWebView.displayName = 'ElectronWebView';
 
 export default ElectronWebView;

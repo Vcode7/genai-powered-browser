@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useBrowser } from '../context/BrowserContext'
 import { useTheme } from '../context/ThemeContext'
+import { useAuth } from '../context/AuthContext'
 import { isElectron, isCapacitor } from '../utils/platform'
 import {
   ArrowLeft,
@@ -13,7 +14,11 @@ import {
   Sun,
   Mic,
   MicOff,
-  Settings as SettingsIcon
+  Settings as SettingsIcon,
+  User,
+  LogOut,
+  Download,
+  Highlighter
 } from 'lucide-react'
 import VoiceRecorder from './VoiceRecorder'
 import CapacitorWebView from './CapacitorWebView'
@@ -22,6 +27,8 @@ import HomePage from './HomePage'
 import FocusMode from './FocusMode'
 import FocusBlockedPage from './FocusBlockedPage'
 import Settings from './Settings'
+import Downloads from './Downloads'
+import HighlightImportant from './HighlightImportant'
 import axios from 'axios'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
@@ -44,6 +51,7 @@ export default function Browser() {
   } = useBrowser()
 
   const { theme, toggleTheme } = useTheme()
+  const { user, logout } = useAuth()
   const [urlInput, setUrlInput] = useState(activeTab?.url || '')
   const [isVoiceActive, setIsVoiceActive] = useState(false)
   const [loadingProgress, setLoadingProgress] = useState(0)
@@ -53,16 +61,71 @@ export default function Browser() {
   const [blockReason, setBlockReason] = useState('')
   const [focusTopic, setFocusTopic] = useState('')
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [searchEngine, setSearchEngine] = useState('google')
+  const [showUserMenu, setShowUserMenu] = useState(false)
+  const [isDownloadsOpen, setIsDownloadsOpen] = useState(false)
+  const [isHighlightOpen, setIsHighlightOpen] = useState(false)
+  const webviewRef = useRef(null)
 
   useEffect(() => {
     setUrlInput(activeTab?.url || '')
   }, [activeTab?.url])
 
+  useEffect(() => {
+    // Listen for IPC messages from Electron
+    if (window.electron && window.electron.receive) {
+      window.electron.receive('ask-ai-with-selection', (selectedText) => {
+        // Open AI chat with selected text as context
+        const event = new CustomEvent('open-ai-chat', {
+          detail: {
+            message: `Explain or help with: "${selectedText}"`,
+            context: selectedText
+          }
+        })
+        window.dispatchEvent(event)
+      })
+
+      window.electron.receive('open-link-new-tab', (url) => {
+        // Open link in new tab
+        addTab(url)
+      })
+    }
+  }, [])
+
+  useEffect(() => {
+    // Load search engine preference
+    const loadSettings = async () => {
+      try {
+        const response = await axios.get(`${API_URL}/api/data/settings`)
+        if (response.data.success) {
+          setSearchEngine(response.data.settings.default_search_engine || 'google')
+        }
+      } catch (error) {
+        console.error('Error loading settings:', error)
+      }
+    }
+    loadSettings()
+  }, [])
+
+  const getSearchUrl = (query) => {
+    const searchEngines = {
+      google: `https://www.google.com/search?q=${encodeURIComponent(query)}`,
+      bing: `https://www.bing.com/search?q=${encodeURIComponent(query)}`,
+      duckduckgo: `https://duckduckgo.com/?q=${encodeURIComponent(query)}`,
+      brave: `https://search.brave.com/search?q=${encodeURIComponent(query)}`,
+      ecosia: `https://www.ecosia.org/search?q=${encodeURIComponent(query)}`
+    }
+    return searchEngines[searchEngine] || searchEngines.google
+  }
+
   const handleUrlSubmit = async (e) => {
     e.preventDefault()
     let url = urlInput.trim()
-    
-    if (!url) return
+
+    if (!url) {
+      alert("Invalid URL or Search Term!");
+      return;
+    }
     
     // Add https:// if no protocol
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
@@ -70,11 +133,11 @@ export default function Browser() {
       if (url.includes('.') && !url.includes(' ')) {
         url = 'https://' + url
       } else {
-        // Treat as search query
-        url = `https://www.google.com/search?q=${encodeURIComponent(url)}`
+        // Treat as search query using selected search engine
+        url = getSearchUrl(url)
       }
     }
-    
+
     // Check with focus mode if active
     if (focusModeActive) {
       const allowed = await checkUrlWithFocusMode(url)
@@ -82,17 +145,17 @@ export default function Browser() {
         return // URL was blocked
       }
     }
-    
+
     updateTabUrl(activeTabId, url)
   }
-  
+
   const checkUrlWithFocusMode = async (url) => {
     try {
       const response = await axios.post(`${API_URL}/api/focus/check-url`, {
         url: url,
         use_quick_check: false
       })
-      
+
       if (response.data.allowed) {
         // Clear any previous block
         setBlockedUrl(null)
@@ -142,7 +205,7 @@ export default function Browser() {
     updateTabUrl(activeTabId, url)
     setUrlInput(url)
   }
-  
+
   const handleFocusModeChange = (active) => {
     setFocusModeActive(active)
     if (!active) {
@@ -152,13 +215,13 @@ export default function Browser() {
       setFocusTopic('')
     }
   }
-  
+
   const handleGoBack = () => {
     setBlockedUrl(null)
     setBlockReason('')
     navigateBack()
   }
-  
+
   const handleEndFocusFromBlock = async () => {
     try {
       await axios.post(`${API_URL}/api/focus/end`)
@@ -199,10 +262,10 @@ export default function Browser() {
           />
         </div>
       )}
-      
+
       {/* Tabs Bar */}
       <div className="flex items-center gap-1 px-2 py-1 bg-secondary border-b border-border">
-        <div className="flex-1 flex items-center gap-1 overflow-x-auto">
+        <div className="flex items-center gap-1 overflow-x-auto w-auto max-w-full">
           {tabs.map(tab => (
             <div
               key={tab.id}
@@ -300,12 +363,57 @@ export default function Browser() {
             {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
           </button>
           <button
+            onClick={() => setIsDownloadsOpen(true)}
+            className="p-2 hover:bg-secondary rounded"
+            title="Downloads"
+          >
+            <Download size={18} />
+          </button>
+          <button
+            onClick={() => setIsHighlightOpen(true)}
+            className="p-2 hover:bg-secondary rounded"
+            title="Highlight Important"
+          >
+            <Highlighter size={18} />
+          </button>
+          <button
             onClick={() => setIsSettingsOpen(true)}
             className="p-2 hover:bg-secondary rounded"
             title="Settings"
           >
             <SettingsIcon size={18} />
           </button>
+
+          {/* User Menu */}
+          <div className="relative">
+            <button
+              onClick={() => setShowUserMenu(!showUserMenu)}
+              className="p-2 hover:bg-secondary rounded flex items-center gap-2"
+              title="User Menu"
+            >
+              <User size={18} />
+              <span className="text-sm hidden md:inline">{user?.name || 'User'}</span>
+            </button>
+
+            {showUserMenu && (
+              <div className="absolute right-0 mt-2 w-48 bg-background border border-border rounded-lg shadow-lg z-50">
+                <div className="p-3 border-b border-border">
+                  <p className="font-medium text-sm">{user?.name}</p>
+                  <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowUserMenu(false)
+                    logout()
+                  }}
+                  className="w-full px-4 py-2 text-left hover:bg-secondary flex items-center gap-2 text-red-600"
+                >
+                  <LogOut size={16} />
+                  <span>Logout</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -333,6 +441,7 @@ export default function Browser() {
                     {isElectron() ? (
                       // Electron: Use webview with navigation tracking
                       <ElectronWebView
+                        ref={webviewRef}
                         key={activeTab.id}
                         url={activeTab.url}
                         tabId={activeTab.id}
@@ -342,11 +451,6 @@ export default function Browser() {
                         onLoadProgress={handleLoadProgress}
                         onLoadStop={handleLoadStop}
                         className="w-full h-full"
-                        ref={(el) => {
-                          if (el) {
-                            activeTab.webview = el
-                          }
-                        }}
                         style={{ display: 'flex', flex: 1 }}
                       />
                     ) : isCapacitor() ? (
@@ -372,12 +476,22 @@ export default function Browser() {
           </>
         )}
       </div>
-      
+
       {/* Focus Mode Component */}
       <FocusMode onUrlCheck={handleFocusModeChange} />
-      
+
       {/* Settings Modal */}
       <Settings isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+
+      {/* Downloads Modal */}
+      <Downloads isOpen={isDownloadsOpen} onClose={() => setIsDownloadsOpen(false)} />
+
+      {/* Highlight Important Modal */}
+      <HighlightImportant 
+        isOpen={isHighlightOpen} 
+        onClose={() => setIsHighlightOpen(false)}
+        activeWebview={webviewRef.current}
+      />
     </div>
   )
 }

@@ -36,7 +36,7 @@ export default function AiChat() {
     scrollToBottom()
   }, [messages])
 
-  // Listen for voice command events
+  // Listen for voice command events and text selection AI chat
   useEffect(() => {
     const handleAiChatQuery = async (event) => {
       const { action, data } = event.detail
@@ -50,8 +50,21 @@ export default function AiChat() {
       }
     }
 
+    const handleOpenAiChat = async (event) => {
+      const { message, context } = event.detail
+      setIsOpen(true)
+      if (message) {
+        await handleSendMessage(message, context)
+      }
+    }
+
     window.addEventListener('aichat-query', handleAiChatQuery)
-    return () => window.removeEventListener('aichat-query', handleAiChatQuery)
+    window.addEventListener('open-ai-chat', handleOpenAiChat)
+    
+    return () => {
+      window.removeEventListener('aichat-query', handleAiChatQuery)
+      window.removeEventListener('open-ai-chat', handleOpenAiChat)
+    }
   }, [activeTab])
 
 
@@ -102,7 +115,7 @@ export default function AiChat() {
 
 
 
-  const handleSendMessage = async (messageText = input) => {
+  const handleSendMessage = async (messageText = input, additionalContext = null) => {
     if (!messageText.trim() || isLoading) return
 
     const userMessage = { role: 'user', content: messageText }
@@ -112,10 +125,15 @@ export default function AiChat() {
 
     try {
       const pageContent = await getPageContent()
+      
+      // Combine page content with additional context (e.g., selected text)
+      const contextToSend = additionalContext 
+        ? `${pageContent}\n\nSelected Text: ${additionalContext}`
+        : pageContent
 
       const response = await axios.post(`${API_URL}/api/ai/chat`, {
         query: messageText,
-        context: pageContent,
+        context: contextToSend,
         page_url: activeTab?.url
       })
 
