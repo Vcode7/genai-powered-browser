@@ -1,8 +1,9 @@
-"""MongoDB database configuration and connection"""
+"""MongoDB database configuration and connection (Render & Atlas compatible)"""
+import os
+import ssl
+from dotenv import load_dotenv
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo import ASCENDING, DESCENDING
-import os
-from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -10,21 +11,27 @@ load_dotenv()
 MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
 DATABASE_NAME = os.getenv("DATABASE_NAME", "lernova_db")
 
-# Global database client
+# Global variables
 client: AsyncIOMotorClient = None
 database = None
 
 
 async def connect_to_mongo():
-    """Connect to MongoDB"""
+    """Connect to MongoDB (handles TLS 1.2 for Atlas/Render)"""
     global client, database
     try:
-        client = AsyncIOMotorClient(MONGODB_URL)
+        # Enforce TLS 1.2 to prevent SSL handshake errors
+        client = AsyncIOMotorClient(
+            MONGODB_URL,
+            tls=True,
+            tlsAllowInvalidCertificates=False,
+            ssl=True,
+            ssl_cert_reqs=ssl.CERT_REQUIRED,
+            ssl_version=ssl.PROTOCOL_TLSv1_2,
+        )
         database = client[DATABASE_NAME]
-        
-        # Create indexes
+
         await create_indexes()
-        
         print(f"✅ Connected to MongoDB: {DATABASE_NAME}")
     except Exception as e:
         print(f"❌ Error connecting to MongoDB: {e}")
@@ -42,26 +49,26 @@ async def close_mongo_connection():
 async def create_indexes():
     """Create database indexes for better performance"""
     try:
-        # Bookmarks indexes
+        # Bookmarks
         await database.bookmarks.create_index([("user_id", ASCENDING), ("url", ASCENDING)], unique=True)
         await database.bookmarks.create_index([("created_at", DESCENDING)])
-        
-        # History indexes
+
+        # History
         await database.history.create_index([("user_id", ASCENDING), ("visited_at", DESCENDING)])
         await database.history.create_index([("url", ASCENDING)])
-        
-        # Settings indexes
+
+        # Settings
         await database.settings.create_index([("user_id", ASCENDING)], unique=True)
-        
-        # Focus mode indexes
+
+        # Focus sessions
         await database.focus_sessions.create_index([("user_id", ASCENDING), ("active", ASCENDING)])
         await database.focus_sessions.create_index([("created_at", DESCENDING)])
-        
+
         print("✅ Database indexes created")
     except Exception as e:
         print(f"⚠️ Error creating indexes: {e}")
 
 
 def get_database():
-    """Get database instance"""
+    """Return MongoDB database instance"""
     return database

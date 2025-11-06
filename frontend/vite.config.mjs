@@ -18,6 +18,7 @@ export default defineConfig({
     __dirname: JSON.stringify(''),
     __filename: JSON.stringify(''),
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'development'),
+    global: 'globalThis',
   },
   optimizeDeps: {
     exclude: ['electron']
@@ -29,8 +30,13 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: false,
+    minify: 'esbuild',
+    target: 'es2015',
     rollupOptions: {
-      external: ['electron']
+      external: ['electron'],
+      output: {
+        manualChunks: undefined,
+      }
     }
   },
 })

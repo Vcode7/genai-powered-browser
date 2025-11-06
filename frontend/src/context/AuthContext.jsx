@@ -12,51 +12,58 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     // Check for existing session on mount
     const checkSession = async () => {
-      const sessionToken = localStorage.getItem('session_token')
-      const userId = localStorage.getItem('user_id')
-      const userEmail = localStorage.getItem('user_email')
-      const userName = localStorage.getItem('user_name')
+      try {
+        const sessionToken = localStorage.getItem('session_token')
+        const userId = localStorage.getItem('user_id')
+        const userEmail = localStorage.getItem('user_email')
+        const userName = localStorage.getItem('user_name')
 
-      if (sessionToken && userId) {
-        // Check if guest mode
-        if (sessionToken === 'guest_token') {
-          setUser({
-            user_id: 'guest',
-            email: 'guest@lernova.com',
-            name: 'Guest User',
-            session_token: 'guest_token'
-          })
-          setLoading(false)
-          return
-        }
-
-        try {
-          // Verify session with backend
-          const response = await axios.get(`${API_URL}/api/auth/verify`, {
-            params: { session_token: sessionToken }
-          })
-
-          if (response.data.valid) {
+        if (sessionToken && userId) {
+          // Check if guest mode
+          if (sessionToken === 'guest_token') {
             setUser({
-              user_id: userId,
-              email: userEmail,
-              name: userName,
-              session_token: sessionToken
+              user_id: 'guest',
+              email: 'guest@lernova.com',
+              name: 'Guest User',
+              session_token: 'guest_token'
             })
-          } else {
-            // Invalid session, clear storage
+            setLoading(false)
+            return
+          }
+
+          try {
+            // Verify session with backend with timeout
+            const response = await axios.get(`${API_URL}/api/auth/verify`, {
+              params: { session_token: sessionToken },
+              timeout: 5000 // 5 second timeout
+            })
+
+            if (response.data.valid) {
+              setUser({
+                user_id: userId,
+                email: userEmail,
+                name: userName,
+                session_token: sessionToken
+              })
+            } else {
+              // Invalid session, clear storage
+              clearSession()
+            }
+          } catch (error) {
+            console.error('Session verification failed:', error.response?.status, error.message)
+            // If 404, the endpoint doesn't exist - check if backend is running
+            if (error.response?.status === 404) {
+              console.error('Auth endpoint not found. Is the backend running on', API_URL, '?')
+            }
+            // On Capacitor, if backend is unreachable, still allow guest mode
             clearSession()
           }
-        } catch (error) {
-          console.error('Session verification failed:', error.response?.status, error.message)
-          // If 404, the endpoint doesn't exist - check if backend is running
-          if (error.response?.status === 404) {
-            console.error('Auth endpoint not found. Is the backend running on', API_URL, '?')
-          }
-          clearSession()
         }
+      } catch (error) {
+        console.error('Error checking session:', error)
+      } finally {
+        setLoading(false)
       }
-      setLoading(false)
     }
 
     checkSession()
